@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Inventory Reconciler</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f4f5f7; --surface: #fff; --border: #dfe1e6;
+  --text: #172b4d; --muted: #6b778c;
+  --primary: #0052cc; --primary-h: #0747a6;
+  --green: #006644; --green-h: #005235;
+  --r: 3px; --shadow: 0 1px 3px rgba(9,30,66,.1);
+}
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+
+/* Header */
+.hdr { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; height: 52px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; box-shadow: var(--shadow); }
+.hdr-title { font-size: 15px; font-weight: 600; }
+.hdr-sub { font-size: 13px; color: var(--muted); border-left: 1px solid var(--border); padding-left: 12px; margin-left: 4px; }
+.body { max-width: 1080px; margin: 0 auto; padding: 24px 20px; }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow); margin-bottom: 16px; }
+.card-hdr { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.step-badge { width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.card-hdr h2 { font-size: 13px; font-weight: 600; }
+.card-hdr .card-desc { font-size: 12px; color: var(--muted); margin-left: 4px; }
+.card-body { padding: 20px; }
+
+/* Layout */
+.row { display: flex; gap: 20px; flex-wrap: wrap; }
+.col { flex: 1; min-width: 260px; }
+.vdivider { width: 1px; background: var(--border); flex-shrink: 0; }
+
+/* Upload row */
+.upload-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Form */
+.lbl { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; margin-top: 14px; }
+.lbl:first-child { margin-top: 0; }
+.lbl .opt { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 11px; }
+select { width: 100%; padding: 6px 28px 6px 8px; border: 1px solid var(--border); border-radius: var(--r); font-size: 13px; color: var(--text); background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Cpath d='M0 0l5 5 5-5z' fill='%236b778c'/%3E%3C/svg%3E") no-repeat right 8px center; appearance: none; }
+select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,82,204,.15); }
+input[type=file] { display: none; }
+.file-pick { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--r); font-size: 13px; color: var(--muted); cursor: pointer; background: #fafbfc; white-space: nowrap; }
+.file-pick:hover { border-color: var(--primary); color: var(--text); }
+.fname { font-size: 12px; color: var(--muted); }
+textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--r); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--text); resize: vertical; }
+textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,82,204,.15); }
+#scan-box { width: 100%; padding: 8px 10px; border: 2px solid var(--primary); border-radius: var(--r); font-size: 13px; color: var(--text); }
+#scan-box:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,82,204,.2); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 16px; border: none; border-radius: var(--r); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s; white-space: nowrap; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-h); }
+.btn-primary:disabled { background: #c1c7d0; cursor: default; }
+.btn-green { background: var(--green); color: #fff; }
+.btn-green:hover { background: var(--green-h); }
+.btn-ghost { background: #fafbfc; color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { background: #f4f5f7; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+
+/* Badges */
+.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 2px; font-size: 12px; font-weight: 500; }
+.b-ok   { background: #e3fcef; color: #006644; }
+.b-err  { background: #ffebe6; color: #bf2600; }
+.b-warn { background: #fffae6; color: #974f0c; }
+.b-info { background: #deebff; color: #0052cc; }
+.b-muted{ background: #f4f5f7; color: #6b778c; }
+.badge-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+
+/* Tables */
+.tbl-wrap { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: #f4f5f7; padding: 7px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); border-bottom: 1px solid var(--border); }
+td { padding: 7px 12px; border-bottom: 1px solid var(--border); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #f8f9fa; }
+
+/* Collapsible sections */
+.sec { margin-top: 10px; }
+.sec-hdr { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: #f4f5f7; border: 1px solid var(--border); border-radius: var(--r); cursor: pointer; user-select: none; }
+.sec-hdr:hover { background: #ebecf0; }
+.sec-hdr.open { border-radius: var(--r) var(--r) 0 0; border-bottom-color: transparent; }
+.sec-left { display: flex; align-items: center; gap: 8px; }
+.sec-chevron { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); transition: transform .2s; }
+.sec-hdr.open .sec-chevron { transform: rotate(180deg); }
+.sec-title { font-size: 13px; font-weight: 600; }
+.sec-meta { font-size: 12px; color: var(--muted); background: var(--border); padding: 1px 7px; border-radius: 10px; }
+.sec-body { border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--r) var(--r); display: none; max-height: 280px; overflow-y: auto; }
+.sec-body.open { display: block; }
+
+/* Debug */
+.debug-box { background: #f4f5f7; border: 1px solid var(--border); border-radius: var(--r); padding: 9px 12px; font-family: monospace; font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.9; }
+
+/* Preview */
+.preview-link { font-size: 12px; color: var(--primary); cursor: pointer; margin-top: 6px; display: inline-block; }
+.preview-wrap { margin-top: 8px; overflow-x: auto; display: none; }
+.preview-wrap.open { display: block; }
+
+/* Separator */
+.sep { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <span class="hdr-title">Inventory Reconciler</span>
+  <span class="hdr-sub">Scan &rarr; Actual / On Hand &rarr; Fixably</span>
+</div>
+
+<div class="body">
+
+<!-- STEP 1 -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="step-badge">1</div>
+    <h2>Physical Scan vs Actual / On Hand</h2>
+    <span class="card-desc">— Check what you physically have against your on-hand sheet</span>
+  </div>
+  <div class="card-body">
+    <div class="row">
+
+      <div class="col">
+        <span class="lbl">Actual / On Hand Sheet</span>
+        <div class="upload-row">
+          <label class="file-pick" for="ac-file">Choose file</label>
+          <input type="file" id="ac-file" accept=".xlsx,.csv">
+          <span class="fname" id="ac-fname">No file chosen</span>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-primary" onclick="upload('actual')">Upload</button>
+        </div>
+        <div id="ac-map"></div>
+      </div>
+
+      <div class="vdivider"></div>
+
+      <div class="col">
+        <span class="lbl">Scan Physical Serials</span>
+        <input type="text" id="scan-box" placeholder="Scan or type serial — press Enter to add">
+        <textarea id="scan-list" rows="5" style="margin-top:8px" placeholder="Scanned serials will appear here..."></textarea>
+        <div class="btn-row">
+          <label class="file-pick" for="scan-file">Load from file</label>
+          <input type="file" id="scan-file" accept=".txt,.csv" onchange="loadScanFile()">
+          <button class="btn btn-green" onclick="step1Match()">Run Comparison</button>
+          <button class="btn btn-ghost" onclick="clearScans()">Clear</button>
+        </div>
+      </div>
+
+    </div>
+    <div id="step1-result" style="margin-top:16px"></div>
+  </div>
+</div>
+
+
+<!-- STEP 2 -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="step-badge">2</div>
+    <h2>Actual / On Hand vs Fixably</h2>
+    <span class="card-desc">— Find serials that don't match between your sheet and Fixably</span>
+  </div>
+  <div class="card-body">
+
+    <div class="row">
+      <div class="col">
+        <span class="lbl">Fixably Export</span>
+        <div class="upload-row">
+          <label class="file-pick" for="fx-file">Choose file</label>
+          <input type="file" id="fx-file" accept=".xlsx,.csv">
+          <span class="fname" id="fx-fname">No file chosen</span>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-primary" onclick="upload('fixably')">Upload</button>
+        </div>
+        <div id="fx-map"></div>
+      </div>
+
+      <div class="vdivider"></div>
+
+      <div class="col">
+        <span class="lbl">Stocked Out Sheet <span class="opt">(optional)</span></span>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Serials already used but not yet updated in Fixably — these will be excluded from discrepancies.</p>
+        <div class="upload-row">
+          <label class="file-pick" for="so-file">Choose file</label>
+          <input type="file" id="so-file" accept=".xlsx,.csv">
+          <span class="fname" id="so-fname">No file chosen</span>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-primary" onclick="upload('stockedout')">Upload</button>
+        </div>
+        <div id="so-map"></div>
+      </div>
+    </div>
+
+    <hr class="sep">
+    <button class="btn btn-green" onclick="step2Match()" id="step2-btn" disabled>Run Comparison</button>
+    <div id="step2-result" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<!-- STEP 3 -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="step-badge">3</div>
+    <h2>Summary</h2>
+    <span class="card-desc">— Combined results from both comparisons</span>
+  </div>
+  <div class="card-body">
+    <div id="step3-result" style="color:var(--muted);font-size:13px">Complete Steps 1 and 2 first.</div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn btn-ghost" onclick="exportReport()">Export Full Report (CSV)</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /.body -->
+
+
+<script>
+const S = { fixably: null, actual: null, stockedout: null, step1: null, step2: null };
+
+// ── Upload ──────────────────────────────────────────────────────────────────
+async function upload(kind) {
+  const ids = { fixably: 'fx-file', actual: 'ac-file', stockedout: 'so-file' };
+  const fnames = { fixably: 'fx-fname', actual: 'ac-fname', stockedout: 'so-fname' };
+  const maps = { fixably: 'fx-map', actual: 'ac-map', stockedout: 'so-map' };
+  const f = document.getElementById(ids[kind]).files[0];
+  if (!f) return alert('Choose a file first.');
+  document.getElementById(fnames[kind]).textContent = f.name;
+  const fd = new FormData();
+  fd.append('kind', kind); fd.append('file', f);
+  const data = await fetch('/upload', { method: 'POST', body: fd }).then(r => r.json());
+  S[kind] = data.columns;
+  const prefix = { fixably: 'fx', actual: 'ac', stockedout: 'so' }[kind];
+  renderMap(prefix, maps[kind], data.columns, data.preview, kind === 'stockedout');
+  if (kind === 'fixably') document.getElementById('step2-btn').disabled = false;
+  const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById(fnames[kind]).innerHTML = `${f.name} <span style="color:var(--green);font-size:11px">Uploaded ${t}</span>`;
+}
+
+function renderMap(prefix, containerId, cols, preview, serialOnly) {
+  const fields = serialOnly ? [['serial','Serial Number']] : [['serial','Serial Number'],['code','Part Code'],['quantity','Quantity']];
+  const guess = key => cols.find(c => c.toLowerCase().includes(key)) || cols[0];
+  let h = '<div style="margin-top:12px">';
+  fields.forEach(([key, lbl]) => {
+    h += `<span class="lbl">${lbl}</span><select id="${prefix}-${key}">`;
+    cols.forEach(c => h += `<option${c === guess(key) ? ' selected' : ''}>${c}</option>`);
+    h += '</select>';
+  });
+  h += '</div>';
+  h += `<span class="preview-link" onclick="toggleEl('${prefix}-preview')">Show preview</span>`;
+  h += `<div class="preview-wrap" id="${prefix}-preview"><div class="tbl-wrap" style="margin-top:0"><table><thead><tr>`;
+  cols.forEach(c => h += `<th>${c}</th>`);
+  h += '</tr></thead><tbody>';
+  preview.forEach(row => h += '<tr>' + cols.map(c => `<td>${row[c] ?? ''}</td>`).join('') + '</tr>');
+  h += '</tbody></table></div></div>';
+  document.getElementById(containerId).innerHTML = h;
+}
+
+function getMap(prefix) {
+  return Object.fromEntries(['serial','code','quantity'].map(k => [k, document.getElementById(`${prefix}-${k}`)?.value]));
+}
+
+function toggleEl(id) { document.getElementById(id).classList.toggle('open'); }
+
+// ── Scanner ─────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('scan-box').addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); addScan(); }
+  });
+  document.getElementById('scan-box').focus();
+
+  // Show filename on label when file is selected
+  ['ac-file','fx-file','so-file'].forEach(id => {
+    document.getElementById(id).addEventListener('change', function() {
+      const label = this.previousElementSibling;
+      label.textContent = this.files[0] ? this.files[0].name : 'Choose file';
+    });
+  });
+});
+
+function addScan() {
+  const box = document.getElementById('scan-box');
+  const val = box.value.trim();
+  if (!val) return;
+  const ta = document.getElementById('scan-list');
+  ta.value = ta.value ? ta.value + '\n' + val : val;
+  box.value = '';
+}
+
+function loadScanFile() {
+  const f = document.getElementById('scan-file').files[0];
+  if (!f) return;
+  const fr = new FileReader();
+  fr.onload = e => { document.getElementById('scan-list').value = e.target.result.trim(); };
+  fr.readAsText(f);
+}
+
+function clearScans() {
+  document.getElementById('scan-list').value = '';
+  document.getElementById('scan-box').focus();
+}
+
+function getScanned() {
+  return document.getElementById('scan-list').value
+    .split(/[\n,;]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+}
+
+// ── Step 1 ───────────────────────────────────────────────────────────────────
+async function step1Match() {
+  if (!S.actual) return alert('Upload your Actual / On Hand sheet first.');
+  const serials = getScanned();
+  if (!serials.length) return alert('No serials scanned yet.');
+  const res = await fetch('/step1', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serials, actual_map: getMap('ac') })
+  }).then(r => r.json());
+  S.step1 = res;
+  let h = `<div class="badge-row">
+    <span class="badge b-ok">Matched: ${res.matched}</span>
+    <span class="badge b-err">Scanned, not in sheet: ${res.not_in_actual.length}</span>
+    <span class="badge b-warn">In sheet, not scanned: ${res.not_scanned.length}</span>
+  </div>`;
+  if (res.not_in_actual.length) h += sec('Scanned but not in your sheet', res.not_in_actual.length,
+    tbl(['Serial'], res.not_in_actual.map(s => [s])), true);
+  if (res.not_scanned.length) h += sec('In your sheet but not physically scanned', res.not_scanned.length,
+    tbl(['Serial', 'Part Code'], res.not_scanned.map(r => [r.serial, r.code])));
+  document.getElementById('step1-result').innerHTML = h;
+  updateStep3();
+}
+
+// ── Step 2 ───────────────────────────────────────────────────────────────────
+async function step2Match() {
+  if (!S.actual) return alert('Upload your Actual / On Hand sheet first.');
+  if (!S.fixably) return alert('Upload the Fixably export first.');
+  const body = { fixably_map: getMap('fx'), actual_map: getMap('ac') };
+  if (S.stockedout) body.stockedout_map = { serial: document.getElementById('so-serial')?.value };
+  const res = await fetch('/reconcile', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(r => r.json());
+  S.step2 = res;
+  const d = res.summary._debug;
+  let h = `<div class="badge-row">
+    <span class="badge b-ok">Matched: ${res.summary.matched}</span>
+    <span class="badge b-err">In your sheet, not in Fixably: ${res.in_actual_not_fixably.length}</span>
+    <span class="badge b-warn">In Fixably, not in your sheet: ${res.in_fixably_not_actual.length}</span>
+    <span class="badge b-info">Qty mismatches: ${res.qty_mismatch.length}</span>
+  </div>
+  <div class="debug-box">
+    Fixably &rarr; column: <b>${d.fx_col}</b> &nbsp;|&nbsp; sample: ${d.fx_sample.join(', ') || '—'}<br>
+    Actual &rarr; column: <b>${d.ac_col}</b> &nbsp;|&nbsp; sample: ${d.ac_sample.join(', ') || '—'}
+  </div>`;
+  if (res.in_actual_not_fixably.length) h += sec('In your sheet but NOT in Fixably', res.in_actual_not_fixably.length,
+    tbl(['Serial'], res.in_actual_not_fixably.map(s => [s])), true);
+  if (res.in_fixably_not_actual.length) h += sec('In Fixably but NOT in your sheet', res.in_fixably_not_actual.length,
+    tbl(['Serial'], res.in_fixably_not_actual.map(s => [s])));
+  if (res.stocked_out_excluded.length) h += sec('Excluded — stocked out (pending Fixably update)', res.stocked_out_excluded.length,
+    tbl(['Serial'], res.stocked_out_excluded.map(s => [s])));
+  if (res.qty_mismatch.length) h += sec('Quantity mismatches by part code', res.qty_mismatch.length,
+    tbl(['Part Code','Fixably Qty','Actual Qty','Diff'], res.qty_mismatch.map(r => {
+      const diff = r.ac_qty - r.fx_qty;
+      return [r.code, r.fx_qty, r.ac_qty, `<span class="badge ${diff > 0 ? 'b-warn' : 'b-err'}">${diff > 0 ? '+' : ''}${diff}</span>`];
+    })));
+  document.getElementById('step2-result').innerHTML = h;
+  updateStep3();
+}
+
+// ── Step 3 ───────────────────────────────────────────────────────────────────
+function updateStep3() {
+  let h = '<table style="border-collapse:collapse;font-size:13px">';
+  if (S.step1) h += `<tr>
+    <td style="padding:5px 16px 5px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);white-space:nowrap">Physical vs Actual</td>
+    <td style="padding:5px 6px"><span class="badge b-ok">Matched: ${S.step1.matched}</span></td>
+    <td style="padding:5px 6px"><span class="badge b-err">Not in sheet: ${S.step1.not_in_actual.length}</span></td>
+    <td style="padding:5px 6px"><span class="badge b-warn">Not scanned: ${S.step1.not_scanned.length}</span></td>
+  </tr>`;
+  if (S.step2) h += `<tr>
+    <td style="padding:5px 16px 5px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);white-space:nowrap">Actual vs Fixably</td>
+    <td style="padding:5px 6px"><span class="badge b-ok">Matched: ${S.step2.summary.matched}</span></td>
+    <td style="padding:5px 6px"><span class="badge b-err">Not in Fixably: ${S.step2.in_actual_not_fixably.length}</span></td>
+    <td style="padding:5px 6px"><span class="badge b-warn">Not in sheet: ${S.step2.in_fixably_not_actual.length}</span></td>
+    <td style="padding:5px 6px"><span class="badge b-info">Qty diff: ${S.step2.qty_mismatch.length}</span></td>
+  </tr>`;
+  h += '</table>';
+  document.getElementById('step3-result').innerHTML = h;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+let _sid = 0;
+function sec(title, count, body, open = false) {
+  const id = 's' + _sid++;
+  const chevron = `<svg class="sec-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,6 8,10 12,6"/></svg>`;
+  return `<div class="sec">
+    <div class="sec-hdr${open ? ' open' : ''}" onclick="toggleSec('${id}')">
+      <span class="sec-left">${chevron}<span class="sec-title">${title}</span></span>
+      <span class="sec-meta">${count}</span>
+    </div>
+    <div class="sec-body${open ? ' open' : ''}" id="${id}">${body}</div>
+  </div>`;
+}
+function toggleSec(id) {
+  const b = document.getElementById(id), h = b.previousElementSibling;
+  b.classList.toggle('open'); h.classList.toggle('open');
+}
+function tbl(headers, rows) {
+  return `<div class="tbl-wrap"><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+// ── Export ───────────────────────────────────────────────────────────────────
+function exportReport() {
+  const rows = [['Serial', 'Part Code', 'Source', 'Issue', 'Action']];
+  if (S.step1) {
+    S.step1.not_in_actual.forEach(s => rows.push([s, '', 'Physical vs Actual', 'Scanned but not in sheet', 'Verify physical item']));
+    S.step1.not_scanned.forEach(r => rows.push([r.serial, r.code, 'Physical vs Actual', 'In sheet but not scanned', 'Locate item physically']));
+  }
+  if (S.step2) {
+    S.step2.in_actual_not_fixably.forEach(s => rows.push([s, '', 'Actual vs Fixably', 'In your sheet, missing in Fixably', 'Add to Fixably']));
+    S.step2.in_fixably_not_actual.forEach(s => rows.push([s, '', 'Actual vs Fixably', 'In Fixably, not in your sheet', 'Remove from Fixably']));
+    S.step2.stocked_out_excluded.forEach(s => rows.push([s, '', 'Stocked Out', 'In Fixably but already stocked out', 'Remove from Fixably']));
+    S.step2.qty_mismatch.forEach(r => rows.push(['', r.code, 'Actual vs Fixably', `Qty diff: Fixably=${r.fx_qty} Actual=${r.ac_qty}`, 'Update qty in Fixably']));
+  }
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv,' + encodeURIComponent(csv);
+  a.download = 'reconcile_report.csv';
+  a.click();
+}
+</script>
+</body>
+</html>
