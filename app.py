@@ -1,12 +1,30 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
+from openpyxl import load_workbook
 import pandas as pd
-import os
+import os, io, json
 
 app = Flask(__name__, static_folder="static")
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 state = {"fixably": None, "actual": None, "stockedout": None}
+site_state = {}
+
+NORM = lambda s: str(s).strip().upper().replace(" ", "")
+
+def _find_sheet(names, *keywords):
+    for n in names:
+        u = n.upper().replace(" ", "")
+        if all(k in u for k in keywords):
+            return n
+    return None
+
+def _header_row(ws, key):
+    for row in ws.iter_rows(min_row=1, max_row=10):
+        for c in row:
+            if c.value and str(c.value).strip().upper().startswith(key):
+                return c.row
+    return 1
 
 def read_file(path):
     if path.endswith(".xlsx"):
@@ -115,6 +133,98 @@ def scan():
     lookup = state.get("serial_lookup", {})
     code = lookup.get(serial)
     return jsonify({"serial": serial, "found": code is not None, "code": code or ""})
+
+@app.route("/site/upload", methods=["POST"])
+def site_upload():
+    f = request.files["file"]
+    path = os.path.join(UPLOAD_DIR, f"site_{f.filename}")
+    f.save(path)
+    wb = load_workbook(path, read_only=True)
+    names = wb.sheetnames
+    master = _find_sheet(names, "MASTER")
+    total = _find_sheet(names, "TOTAL", "PART")
+    outtake = _find_sheet(names, "OUTTAKE")
+    if not (master and total and outtake):
+        return jsonify({"error": f"Could not detect all 3 sheets. Found: {names}"}), 400
+    ml = wb[master]
+    hdr = [str(c.value).strip().lower() if c.value else "" for c in next(ml.iter_rows(max_row=1))]
+    ci = hdr.index("serial number") if "serial number" in hdr else 3
+    serials = sum(1 for r in ml.iter_rows(min_row=2, values_only=True) if r[ci])
+    site_state.update({"path": path, "master": master, "total": total, "outtake": outtake})
+    return jsonify({"file": f.filename, "sheets": {"masterlist": master, "total_parts": total, "outtake": outtake},
+                    "masterlist_serials": serials})
+
+@app.route("/site/generate", methods=["POST"])
+def site_generate():
+    if not site_state.get("path"):
+        return jsonify({"error": "Upload a site workbook first."}), 400
+    scanned_raw = [s.strip() for s in request.json["serials"] if s.strip()]
+    scanned = {NORM(s): s for s in scanned_raw}
+    scanned_set = set(scanned)
+
+    wb = load_workbook(site_state["path"])
+    ml, tp, out = wb[site_state["master"]], wb[site_state["total"]], wb[site_state["outtake"]]
+
+    rows = list(ml.iter_rows(values_only=True))
+    hdr = [str(h).strip().lower() if h else "" for h in rows[0]]
+    gi = lambda k, d: hdr.index(k) if k in hdr else d
+    ci_code, ci_name, ci_ser, ci_qty = gi("code", 0), gi("name", 1), gi("serial number", 3), gi("quantity", 6)
+
+    parts, ml_serials = {}, set()
+    for r in rows[1:]:
+        code = r[ci_code]
+        if code is None:
+            continue
+        p = parts.setdefault(code, {"name": r[ci_name], "scanned": [], "unscanned": [], "nonser": 0})
+        sn = r[ci_ser]
+        if sn:
+            ml_serials.add(NORM(sn))
+            (p["scanned"] if NORM(sn) in scanned_set else p["unscanned"]).append(str(sn).strip())
+        else:
+            q = r[ci_qty] or 0
+            p["nonser"] += int(q) if str(q).strip().lstrip("-").isdigit() else 0
+    new_serials = [scanned[n] for n in scanned_set - ml_serials]
+
+    # --- Total Parts: on-hand only, recomputed count, + Serial Numbers column ---
+    thr = _header_row(tp, "PART")
+    tp.cell(row=thr, column=4, value="Serial Numbers")
+    if tp.max_row > thr:
+        tp.delete_rows(thr + 1, tp.max_row - thr)
+    kept = 0
+    r = thr + 1
+    for code, p in parts.items():
+        ser_total = len(p["scanned"]) + len(p["unscanned"])
+        if ser_total:
+            count, serials_str = len(p["scanned"]), ", ".join(p["scanned"])
+        else:
+            count, serials_str = p["nonser"], ""
+        if count <= 0:
+            continue
+        tp.cell(r, 1, code); tp.cell(r, 2, p["name"]); tp.cell(r, 3, count); tp.cell(r, 4, serials_str)
+        r += 1; kept += 1
+    for s in new_serials:
+        tp.cell(r, 1, ""); tp.cell(r, 2, "NEW STOCK"); tp.cell(r, 3, 1); tp.cell(r, 4, s)
+        r += 1
+
+    # --- FOR OUTTAKE: one row per unscanned serial, remark = serial ---
+    ohr = _header_row(out, "PART")
+    if out.max_row > ohr:
+        out.delete_rows(ohr + 1, out.max_row - ohr)
+    r = ohr + 1
+    outtake_n = 0
+    for code, p in parts.items():
+        for sn in p["unscanned"]:
+            out.cell(r, 1, code); out.cell(r, 2, p["name"]); out.cell(r, 3, sn)
+            r += 1; outtake_n += 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    name = os.path.basename(site_state["path"]).replace("site_", "").replace(".xlsx", "")
+    resp = send_file(buf, as_attachment=True, download_name=f"{name}_reconciled.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp.headers["X-Stats"] = json.dumps({"on_hand_parts": kept, "new_stock": len(new_serials), "outtake": outtake_n})
+    return resp
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)

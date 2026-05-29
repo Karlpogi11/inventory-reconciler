@@ -155,6 +155,28 @@ tr:hover td { background: #f8f9fa; }
   </div>
 </div>
 
+<!-- GENERATE SITE WORKBOOK -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="step-badge" style="background:var(--green)">&#9733;</div>
+    <h2>Generate Site Workbook</h2>
+    <span class="card-desc">— Upload a *_MSPI_OWNED.xlsx; uses your scanned serials above to fill Total Parts + FOR OUTTAKE in the same format</span>
+  </div>
+  <div class="card-body">
+    <div class="upload-row">
+      <label class="file-pick" for="site-file">Choose workbook</label>
+      <input type="file" id="site-file" accept=".xlsx">
+      <span class="fname" id="site-fname">No file chosen</span>
+      <button class="btn btn-primary" onclick="siteUpload()">Upload &amp; Detect</button>
+    </div>
+    <div id="site-detect" style="margin-top:12px"></div>
+    <div class="btn-row">
+      <button class="btn btn-green" id="site-gen-btn" onclick="siteGenerate()" disabled>Generate &amp; Download</button>
+      <span class="card-desc">Scanned serials = stocks on hand. Everything else &rarr; FOR OUTTAKE.</span>
+    </div>
+    <div id="site-result" style="margin-top:14px"></div>
+  </div>
+</div>
 
 <!-- STEP 2 -->
 <div class="card">
@@ -275,7 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scan-box').focus();
 
   // Show filename on label when file is selected
-  ['ac-file','fx-file','so-file'].forEach(id => {
+  ['ac-file','fx-file','so-file','site-file'].forEach(id => {
     document.getElementById(id).addEventListener('change', function() {
       const label = this.previousElementSibling;
       label.textContent = this.files[0] ? this.files[0].name : 'Choose file';
@@ -411,6 +433,50 @@ function tbl(headers, rows) {
   return `<div class="tbl-wrap"><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>
     ${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}
   </tbody></table></div>`;
+}
+
+// ── Generate Site Workbook ───────────────────────────────────────────────────
+let siteReady = false;
+async function siteUpload() {
+  const f = document.getElementById('site-file').files[0];
+  if (!f) return alert('Choose a workbook first.');
+  const fd = new FormData();
+  fd.append('file', f);
+  const res = await fetch('/site/upload', { method: 'POST', body: fd }).then(r => r.json());
+  const box = document.getElementById('site-detect');
+  if (res.error) { box.innerHTML = `<span class="badge b-err">${res.error}</span>`; return; }
+  box.innerHTML = `<div class="badge-row">
+    <span class="badge b-info">Masterlist: ${res.sheets.masterlist}</span>
+    <span class="badge b-info">Total Parts: ${res.sheets.total_parts}</span>
+    <span class="badge b-info">Outtake: ${res.sheets.outtake}</span>
+    <span class="badge b-muted">${res.masterlist_serials} serials in file</span>
+  </div>`;
+  siteReady = true;
+  document.getElementById('site-gen-btn').disabled = false;
+}
+
+async function siteGenerate() {
+  if (!siteReady) return alert('Upload a site workbook first.');
+  const serials = getScanned();
+  if (!serials.length && !confirm('No serials scanned — every part will go to FOR OUTTAKE. Continue?')) return;
+  const res = await fetch('/site/generate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serials })
+  });
+  if (!res.ok) { const e = await res.json(); document.getElementById('site-result').innerHTML = `<span class="badge b-err">${e.error}</span>`; return; }
+  const stats = JSON.parse(res.headers.get('X-Stats') || '{}');
+  const cd = res.headers.get('Content-Disposition') || '';
+  const fname = (cd.match(/filename=?"?([^\";]+)"?/) || [])[1] || 'reconciled.xlsx';
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = fname; a.click();
+  URL.revokeObjectURL(a.href);
+  document.getElementById('site-result').innerHTML = `<div class="badge-row">
+    <span class="badge b-ok">On-hand parts: ${stats.on_hand_parts}</span>
+    <span class="badge b-info">New stock: ${stats.new_stock}</span>
+    <span class="badge b-warn">For outtake: ${stats.outtake}</span>
+    <span class="badge b-muted">Downloaded ${fname}</span>
+  </div>`;
 }
 
 // ── Export ───────────────────────────────────────────────────────────────────
