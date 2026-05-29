@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
 import pandas as pd
 import os, io, json
 
@@ -224,6 +225,63 @@ def site_generate():
     resp = send_file(buf, as_attachment=True, download_name=f"{name}_reconciled.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     resp.headers["X-Stats"] = json.dumps({"on_hand_parts": kept, "new_stock": len(new_serials), "outtake": outtake_n})
+    return resp
+
+@app.route("/site/annotate", methods=["POST"])
+def site_annotate():
+    if not site_state.get("path"):
+        return jsonify({"error": "Upload a site workbook first."}), 400
+    scanned_raw = [s.strip() for s in request.json["serials"] if s.strip()]
+    scanned = {NORM(s): s for s in scanned_raw}
+    scanned_set = set(scanned)
+
+    wb = load_workbook(site_state["path"])
+    ml = wb[site_state["master"]]
+    rows = list(ml.iter_rows(values_only=True))
+    hdr = [str(h).strip().lower() if h else "" for h in rows[0]]
+    gi = lambda k, d: hdr.index(k) if k in hdr else d
+    ci_ser, ci_order = gi("serial number", 3), (hdr.index("order") if "order" in hdr else -1)
+    rem_col = len(rows[0]) + 1
+
+    USED = PatternFill("solid", fgColor="FFD9A0")   # orange — believed used
+    NEW = PatternFill("solid", fgColor="FFF275")    # yellow — not in export
+    ml.cell(1, rem_col, "Remarks")
+
+    used_n = 0
+    ocn_filled = 0
+    ml_serials = set()
+    for i, r in enumerate(rows[1:], start=2):
+        sn = r[ci_ser]
+        if not sn:
+            continue
+        ml_serials.add(NORM(sn))
+        if NORM(sn) not in scanned_set:  # in export but not on hand -> believed used
+            ocn = r[ci_order] if ci_order >= 0 and r[ci_order] else None
+            ml.cell(i, rem_col, ocn if ocn else "USED - enter OCN")
+            if ocn:
+                ocn_filled += 1
+            for c in range(1, rem_col + 1):
+                ml.cell(i, c).fill = USED
+            used_n += 1
+
+    # scanned serials not in the export -> append + highlight yellow
+    new_serials = [scanned[n] for n in scanned_set - ml_serials]
+    r = ml.max_row + 1
+    for s in new_serials:
+        ml.cell(r, ci_ser + 1, s)
+        ml.cell(r, rem_col, "NOT IN EXPORT")
+        for c in range(1, rem_col + 1):
+            ml.cell(r, c).fill = NEW
+        r += 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    name = os.path.basename(site_state["path"]).replace("site_", "").replace(".xlsx", "")
+    resp = send_file(buf, as_attachment=True, download_name=f"{name}_annotated.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp.headers["X-Stats"] = json.dumps({"believed_used": used_n, "not_in_export": len(new_serials),
+                                          "ocn_source": f"{ocn_filled} auto from Order, {used_n - ocn_filled} manual"})
     return resp
 
 if __name__ == "__main__":

@@ -172,7 +172,14 @@ tr:hover td { background: #f8f9fa; }
     <div id="site-detect" style="margin-top:12px"></div>
     <div class="btn-row">
       <button class="btn btn-green" id="site-gen-btn" onclick="siteGenerate()" disabled>Generate &amp; Download</button>
-      <span class="card-desc">Scanned serials = stocks on hand. Everything else &rarr; FOR OUTTAKE.</span>
+      <button class="btn btn-green" id="site-ann-btn" onclick="siteAnnotate()" disabled>Annotate Export &amp; Download</button>
+      <span class="card-desc">Scanned serials = stocks on hand. Everything else &rarr; FOR OUTTAKE / believed used.</span>
+    </div>
+    <div class="card-desc" style="margin-top:8px">
+      <b>Generate</b> = Total Parts + FOR OUTTAKE format. &nbsp;|&nbsp;
+      <b>Annotate</b> = works on the raw export:
+      <span style="background:#FFD9A0;padding:1px 6px;border-radius:2px">believed used (enter OCN)</span>
+      <span style="background:#FFF275;padding:1px 6px;border-radius:2px">not in export</span>
     </div>
     <div id="site-result" style="margin-top:14px"></div>
   </div>
@@ -453,6 +460,7 @@ async function siteUpload() {
   </div>`;
   siteReady = true;
   document.getElementById('site-gen-btn').disabled = false;
+  document.getElementById('site-ann-btn').disabled = false;
 }
 
 async function siteGenerate() {
@@ -475,6 +483,30 @@ async function siteGenerate() {
     <span class="badge b-ok">On-hand parts: ${stats.on_hand_parts}</span>
     <span class="badge b-info">New stock: ${stats.new_stock}</span>
     <span class="badge b-warn">For outtake: ${stats.outtake}</span>
+    <span class="badge b-muted">Downloaded ${fname}</span>
+  </div>`;
+}
+
+async function siteAnnotate() {
+  if (!siteReady) return alert('Upload a site workbook first.');
+  const serials = getScanned();
+  if (!serials.length && !confirm('No serials scanned — every serial in the export will be marked as believed used. Continue?')) return;
+  const res = await fetch('/site/annotate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serials })
+  });
+  if (!res.ok) { const e = await res.json(); document.getElementById('site-result').innerHTML = `<span class="badge b-err">${e.error}</span>`; return; }
+  const stats = JSON.parse(res.headers.get('X-Stats') || '{}');
+  const cd = res.headers.get('Content-Disposition') || '';
+  const fname = (cd.match(/filename=?"?([^\";]+)"?/) || [])[1] || 'annotated.xlsx';
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = fname; a.click();
+  URL.revokeObjectURL(a.href);
+  document.getElementById('site-result').innerHTML = `<div class="badge-row">
+    <span class="badge b-warn">Believed used: ${stats.believed_used}</span>
+    <span class="badge b-info">Not in export: ${stats.not_in_export}</span>
+    <span class="badge b-muted">OCN source: ${stats.ocn_source}</span>
     <span class="badge b-muted">Downloaded ${fname}</span>
   </div>`;
 }
