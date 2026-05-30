@@ -169,8 +169,8 @@ tr:hover td { background: #f8f9fa; }
     <div class="row">
       <div class="col">
         <span class="lbl">Fixably Export</span>
-        <p class="req-hint">Required columns: <b>Serial number</b>, <b>Code</b>, <b>Quantity</b></p>
-        <p class="note">⚠ Reminder: Fixably's <b>Quantity</b> shows <b>in stock</b>, not <b>available</b>. So a used serial still shows 1. If unsure, double-check in Fixably whether it's really stocked out by looking at the <b>Available</b> count.</p>
+        <p class="req-hint">Required columns: <b>Serial number</b>, <b>Code (Part Number)</b>, <b>Quantity</b></p>
+        <p class="note">⚠ Reminder: The exported Fixably <b>MSPI Owned</b> <b>Quantity</b> is from <b>In Stock</b>, not <b>Available</b>. So a used serial still shows 1. If unsure, double-check in Fixably whether it's really stocked out by looking at the <b>Available</b> count.</p>
         <div class="upload-row">
           <label class="file-pick" for="fx-file">Choose file</label>
           <input type="file" id="fx-file" accept=".xlsx,.csv">
@@ -186,7 +186,7 @@ tr:hover td { background: #f8f9fa; }
 
       <div class="col">
         <span class="lbl">Stocked Out Sheet</span>
-        <p class="req-hint">Required: <b>Serial Number</b> &nbsp;·&nbsp; Optional (for FOR OUTTAKE): Part Number, Description, Reference Number (AR)</p>
+        <p class="req-hint">Fields: <b>Serial Number</b>, <b>Code (Part Number)</b>, <b>Description</b>, <b>Reference Number (AR)</b></p>
         <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Required. Serials already used but not yet updated in Fixably — excluded from discrepancies and used to build FOR OUTTAKE.</p>
         <div class="upload-row">
           <label class="file-pick" for="so-file">Choose file</label>
@@ -290,7 +290,7 @@ function maps_id(prefix) { return { fx: 'fx-map', ac: 'ac-map', so: 'so-map' }[p
 
 function renderMap(prefix, containerId, cols, preview, serialOnly) {
   const fields = serialOnly
-    ? [['serial','Serial Number','serial',false],['part','Part Number','part',true],['description','Description','desc',true],['reference','Reference Number (AR)','ref',true]]
+    ? [['serial','Serial Number','serial',false],['part','Code (Part Number)','part',true],['description','Description','desc',true],['reference','Reference Number (AR)','ref',true]]
     : [['serial','Serial Number','serial',false],['code','Part Code','code',false],['quantity','Quantity','qty',false]];
   const saved = loadMaps()[prefix] || {};
   const guess = kw => cols.find(c => c.toLowerCase().includes(kw)) || cols[0];
@@ -298,7 +298,9 @@ function renderMap(prefix, containerId, cols, preview, serialOnly) {
   fields.forEach(([key, lbl, kw, optional]) => {
     // prefer a previously saved choice, but only if that column still exists in this file
     const savedVal = (key in saved && (saved[key] === '' || cols.includes(saved[key]))) ? saved[key] : null;
-    const g = savedVal !== null ? savedVal : (optional ? (cols.find(c => c.toLowerCase().includes(kw)) || '') : guess(kw));
+    const altKws = key === 'part' ? ['part', 'code'] : [kw];
+    const findCol = () => cols.find(c => altKws.some(k => c.toLowerCase().includes(k)));
+    const g = savedVal !== null ? savedVal : (optional ? (findCol() || '') : (findCol() || cols[0]));
     h += `<span class="lbl">${lbl}${optional ? ' <span class="opt">(optional)</span>' : ''}</span><select id="${prefix}-${key}" onchange="saveMap('${prefix}')">`;
     if (optional) h += `<option value=""${g === '' ? ' selected' : ''}>— none —</option>`;
     cols.forEach(c => h += `<option${c === g ? ' selected' : ''}>${c}</option>`);
