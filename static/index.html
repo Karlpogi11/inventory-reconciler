@@ -362,14 +362,16 @@ async function restoreState() {
   const prefixes = { fixably: 'fx', actual: 'ac', stockedout: 'so' };
   const fnames = { fixably: 'fx-fname', actual: 'ac-fname', stockedout: 'so-fname' };
   const maps = { fixably: 'fx-map', actual: 'ac-map', stockedout: 'so-map' };
-  Object.entries(data).forEach(([kind, v]) => {
+  Object.entries(prefixes).forEach(([kind, prefix]) => {
+    const v = data[kind];
+    if (!v) return;
     S[kind] = v.columns;
-    const prefix = prefixes[kind];
     renderMap(prefix, maps[kind], v.columns, v.preview, kind === 'stockedout');
-    if (kind === 'fixably') document.getElementById('step2-btn').disabled = false;
     document.getElementById(fnames[kind]).innerHTML =
       `${v.name} <span style="color:var(--green);font-size:11px">Restored</span>`;
   });
+  // Bring back the last comparison so FOR OUTTAKE and the summary work after a refresh
+  if (data.last_reconcile) renderStep2(data.last_reconcile);
 }
 
 // ── Step 2 ───────────────────────────────────────────────────────────────────
@@ -377,6 +379,10 @@ async function step2Match() {
   if (!S.actual) return alert('Upload your Actual / On Hand sheet first.');
   if (!S.fixably) return alert('Upload the Fixably export first.');
   if (!S.stockedout) return alert('Upload the Stocked Out sheet first.');
+  // Always re-run fresh: drop the previous result and any stale FOR OUTTAKE output
+  S.step2 = null;
+  document.getElementById('site-result').innerHTML = '';
+  document.getElementById('step2-result').innerHTML = '<span class="badge b-info">Comparing…</span>';
   const body = { fixably_map: getMap('fx'), actual_map: getMap('ac') };
   body.stockedout_map = { serial: document.getElementById('so-serial')?.value };
   const res = await fetch('/reconcile', {
@@ -387,6 +393,10 @@ async function step2Match() {
     document.getElementById('step2-result').innerHTML = `<span class="badge b-err">${res.error || 'Comparison failed — check your column mapping.'}</span>`;
     return;
   }
+  renderStep2(res);
+}
+
+function renderStep2(res) {
   S.step2 = res;
   const d = res.summary._debug;
   let h = `<div class="badge-row">
@@ -484,6 +494,7 @@ async function genOuttake() {
   URL.revokeObjectURL(a.href);
   document.getElementById('site-result').innerHTML = `<div class="badge-row">
     <span class="badge b-warn">For outtake (used/transferred): ${stats.outtake}</span>
+    <span class="badge b-info">Non-serialized not in actual: ${stats.nonser || 0}</span>
     <span class="badge b-muted">Downloaded FOR_OUTTAKE.xlsx</span>
   </div>`;
 }

@@ -9,6 +9,7 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 state = {"fixably": None, "actual": None, "stockedout": None}
+FILE_KINDS = ("fixably", "actual", "stockedout")
 
 NORM = lambda s: str(s).strip().upper().replace(" ", "")
 
@@ -38,16 +39,19 @@ def upload():
 def get_state():
     _rehydrate()
     out = {}
-    for kind, v in state.items():
+    for kind in FILE_KINDS:
+        v = state.get(kind)
         if v:
             out[kind] = {"name": v["name"], "columns": v["columns"],
                          "preview": v["df"].head(3).to_dict(orient="records")}
+    if state.get("last_reconcile"):
+        out["last_reconcile"] = state["last_reconcile"]
     return jsonify(out)
 
 def _rehydrate():
     """Reload the most recent file per kind from disk into memory (survives restarts)."""
-    for kind in state:
-        if state[kind]:
+    for kind in FILE_KINDS:
+        if state.get(kind):
             continue
         files = [f for f in os.listdir(UPLOAD_DIR) if f.startswith(f"{kind}_")]
         if not files:
@@ -66,7 +70,7 @@ def _rehydrate():
 
 @app.route("/reset", methods=["POST"])
 def reset():
-    for kind in state:
+    for kind in FILE_KINDS:
         state[kind] = None
         for f in os.listdir(UPLOAD_DIR):
             if f.startswith(f"{kind}_"):
@@ -74,6 +78,7 @@ def reset():
                     os.remove(os.path.join(UPLOAD_DIR, f))
                 except OSError:
                     pass
+    state["last_reconcile"] = None
     return jsonify({"ok": True})
 
 @app.route("/outtake", methods=["POST"])
@@ -107,10 +112,19 @@ def outtake():
                    r[ref_c] if ref_c else "", serial])
         n += 1
 
+    # Non-serialized Fixably items not in the actual on-hand sheet
+    nonser = (state.get("last_reconcile") or {}).get("nonser_outtake", [])
+    if nonser:
+        ws.append([])
+        ws.append(["NON-SERIALIZED — NOT IN ACTUAL ON HAND"])
+        ws.append(["PART NUMBER", "DESCRIPTION", "QUANTITY"])
+        for it in nonser:
+            ws.append([it["code"], it["description"], it["quantity"]])
+
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     resp = send_file(buf, as_attachment=True, download_name="FOR_OUTTAKE.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    resp.headers["X-Stats"] = json.dumps({"outtake": n})
+    resp.headers["X-Stats"] = json.dumps({"outtake": n, "nonser": len(nonser)})
     return resp
 
 @app.route("/reconcile", methods=["POST"])
@@ -159,6 +173,22 @@ def reconcile():
     in_fixably_not_actual = sorted((fx_serials - ac_serials) - so_serials)
     stocked_out_excluded  = sorted((fx_serials - ac_serials) & so_serials)
 
+    # Non-serialized Fixably items (no serial) whose code is NOT in the actual on-hand sheet
+    fx_name_col = next((c for c in fx_df.columns if c.strip().lower() in ("name", "description")), None)
+    ac_codes = set(str(c).strip() for c in ac["code"] if str(c).strip())
+    nonser_outtake = {}
+    for _, r in fx_df.iterrows():
+        if str(r[fx_map["serial"]]).strip():
+            continue
+        code = str(r[fx_map["code"]]).strip()
+        if not code or code in ac_codes:
+            continue
+        item = nonser_outtake.setdefault(code, {"code": code,
+            "description": str(r[fx_name_col]).strip() if fx_name_col else "", "quantity": 0})
+        q = str(r[fx_map["quantity"]]).strip()
+        item["quantity"] += int(q) if q.lstrip("-").isdigit() else 0
+    nonser_outtake = list(nonser_outtake.values())
+
     # Quantity mismatch by part code
     def qty_sum(df):
         return df.groupby("code")["quantity"].apply(
@@ -176,11 +206,12 @@ def reconcile():
 
     state["serial_lookup"] = dict(zip(fx["serial"], fx["code"]))
 
-    return jsonify({
+    result = {
         "in_actual_not_fixably": in_actual_not_fixably,
         "in_fixably_not_actual": in_fixably_not_actual,
         "stocked_out_excluded": stocked_out_excluded,
         "stocked_out_ref": so_ref,
+        "nonser_outtake": nonser_outtake,
         "qty_mismatch": qty_mismatch,
         "summary": {
             "fx_total": len(fx_serials),
@@ -191,7 +222,9 @@ def reconcile():
                 "ac_col": ac_map["serial"], "ac_sample": sorted(ac_serials)[:5],
             }
         }
-    })
+    }
+    state["last_reconcile"] = result
+    return jsonify(result)
 
 @app.route("/scan", methods=["POST"])
 def scan():
