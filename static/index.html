@@ -40,6 +40,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .lbl { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; margin-top: 14px; }
 .lbl:first-child { margin-top: 0; }
 .lbl .opt { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 11px; }
+.req-hint { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.req-hint b { color: var(--text); font-weight: 600; }
 select { width: 100%; padding: 6px 28px 6px 8px; border: 1px solid var(--border); border-radius: var(--r); font-size: 13px; color: var(--text); background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Cpath d='M0 0l5 5 5-5z' fill='%236b778c'/%3E%3C/svg%3E") no-repeat right 8px center; appearance: none; }
 select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,82,204,.15); }
 input[type=file] { display: none; }
@@ -48,8 +50,6 @@ input[type=file] { display: none; }
 .fname { font-size: 12px; color: var(--muted); }
 textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--r); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--text); resize: vertical; }
 textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,82,204,.15); }
-#scan-box { width: 100%; padding: 8px 10px; border: 2px solid var(--primary); border-radius: var(--r); font-size: 13px; color: var(--text); }
-#scan-box:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,82,204,.2); }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 16px; border: none; border-radius: var(--r); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s; white-space: nowrap; }
@@ -102,13 +102,31 @@ tr:hover td { background: #f8f9fa; }
 
 /* Separator */
 .sep { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* Info strip */
+.info-strip { background: #f7f8fa; border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: var(--r); padding: 12px 16px; font-size: 13px; color: var(--text); margin-bottom: 14px; }
+.info-strip ul { margin: 8px 0 0; padding-left: 4px; list-style: none; }
+.info-strip li { margin: 4px 0; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+.dot-ok { background: #00875a; }
+.dot-out { background: #de9b34; }
+.dot-new { background: #0052cc; }
+
+/* Findings chart */
+.chart { margin: 14px 0; display: flex; flex-direction: column; gap: 8px; }
+.chart-row { display: flex; align-items: center; gap: 10px; }
+.chart-label { flex: 0 0 200px; font-size: 12px; color: var(--text); text-align: right; }
+.chart-track { flex: 1; height: 18px; background: #f4f5f7; border-radius: 3px; overflow: hidden; }
+.chart-bar { display: block; height: 100%; border-radius: 3px; min-width: 2px; transition: width .4s ease; }
+.chart-val { flex: 0 0 44px; font-size: 12px; font-weight: 700; color: var(--text); }
 </style>
 </head>
 <body>
 
 <div class="hdr">
   <span class="hdr-title">Inventory Reconciler</span>
-  <span class="hdr-sub">Scan &rarr; Actual / On Hand &rarr; Fixably</span>
+  <span class="hdr-sub">Actual / On Hand &rarr; Fixably &rarr; Stocked Out</span>
+  <button class="btn btn-ghost" style="margin-left:auto" onclick="startNew()">Start New</button>
 </div>
 
 <div class="body">
@@ -117,71 +135,23 @@ tr:hover td { background: #f8f9fa; }
 <div class="card">
   <div class="card-hdr">
     <div class="step-badge">1</div>
-    <h2>Physical Scan vs Actual / On Hand</h2>
-    <span class="card-desc">— Check what you physically have against your on-hand sheet</span>
+    <h2>Actual / On Hand Sheet</h2>
+    <span class="card-desc">— Upload your on-hand sheet. This is the true actual.</span>
   </div>
   <div class="card-body">
-    <div class="row">
-
-      <div class="col">
-        <span class="lbl">Actual / On Hand Sheet</span>
-        <div class="upload-row">
-          <label class="file-pick" for="ac-file">Choose file</label>
-          <input type="file" id="ac-file" accept=".xlsx,.csv">
-          <span class="fname" id="ac-fname">No file chosen</span>
-        </div>
-        <div class="btn-row" style="margin-top:8px">
-          <button class="btn btn-primary" onclick="upload('actual')">Upload</button>
-        </div>
-        <div id="ac-map"></div>
+    <div class="col">
+      <span class="lbl">Actual / On Hand Sheet</span>
+      <p class="req-hint">Required columns: <b>Serial Number</b>, <b>Part Number</b>, <b>Quantity</b></p>
+      <div class="upload-row">
+        <label class="file-pick" for="ac-file">Choose file</label>
+        <input type="file" id="ac-file" accept=".xlsx,.csv">
+        <span class="fname" id="ac-fname">No file chosen</span>
       </div>
-
-      <div class="vdivider"></div>
-
-      <div class="col">
-        <span class="lbl">Scan Physical Serials</span>
-        <input type="text" id="scan-box" placeholder="Scan or type serial — press Enter to add">
-        <textarea id="scan-list" rows="5" style="margin-top:8px" placeholder="Scanned serials will appear here..."></textarea>
-        <div class="btn-row">
-          <label class="file-pick" for="scan-file">Load from file</label>
-          <input type="file" id="scan-file" accept=".txt,.csv" onchange="loadScanFile()">
-          <button class="btn btn-green" onclick="step1Match()">Run Comparison</button>
-          <button class="btn btn-ghost" onclick="clearScans()">Clear</button>
-        </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-primary" onclick="upload('actual')">Upload</button>
       </div>
-
+      <div id="ac-map"></div>
     </div>
-    <div id="step1-result" style="margin-top:16px"></div>
-  </div>
-</div>
-
-<!-- GENERATE SITE WORKBOOK -->
-<div class="card">
-  <div class="card-hdr">
-    <div class="step-badge" style="background:var(--green)">&#9733;</div>
-    <h2>Generate Site Workbook</h2>
-    <span class="card-desc">— Upload a *_MSPI_OWNED.xlsx; uses your scanned serials above to fill Total Parts + FOR OUTTAKE in the same format</span>
-  </div>
-  <div class="card-body">
-    <div class="upload-row">
-      <label class="file-pick" for="site-file">Choose workbook</label>
-      <input type="file" id="site-file" accept=".xlsx">
-      <span class="fname" id="site-fname">No file chosen</span>
-      <button class="btn btn-primary" onclick="siteUpload()">Upload &amp; Detect</button>
-    </div>
-    <div id="site-detect" style="margin-top:12px"></div>
-    <div class="btn-row">
-      <button class="btn btn-green" id="site-gen-btn" onclick="siteGenerate()" disabled>Generate &amp; Download</button>
-      <button class="btn btn-green" id="site-ann-btn" onclick="siteAnnotate()" disabled>Annotate Export &amp; Download</button>
-      <span class="card-desc">Scanned serials = stocks on hand. Everything else &rarr; FOR OUTTAKE / believed used.</span>
-    </div>
-    <div class="card-desc" style="margin-top:8px">
-      <b>Generate</b> = Total Parts + FOR OUTTAKE format. &nbsp;|&nbsp;
-      <b>Annotate</b> = works on the raw export:
-      <span style="background:#FFD9A0;padding:1px 6px;border-radius:2px">believed used (enter OCN)</span>
-      <span style="background:#FFF275;padding:1px 6px;border-radius:2px">not in export</span>
-    </div>
-    <div id="site-result" style="margin-top:14px"></div>
   </div>
 </div>
 
@@ -197,6 +167,7 @@ tr:hover td { background: #f8f9fa; }
     <div class="row">
       <div class="col">
         <span class="lbl">Fixably Export</span>
+        <p class="req-hint">Required columns: <b>Serial number</b>, <b>Code</b>, <b>Quantity</b></p>
         <div class="upload-row">
           <label class="file-pick" for="fx-file">Choose file</label>
           <input type="file" id="fx-file" accept=".xlsx,.csv">
@@ -211,8 +182,9 @@ tr:hover td { background: #f8f9fa; }
       <div class="vdivider"></div>
 
       <div class="col">
-        <span class="lbl">Stocked Out Sheet <span class="opt">(optional)</span></span>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Serials already used but not yet updated in Fixably — these will be excluded from discrepancies.</p>
+        <span class="lbl">Stocked Out Sheet</span>
+        <p class="req-hint">Required: <b>Serial Number</b> &nbsp;·&nbsp; Optional (for FOR OUTTAKE): Part Number, Description</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Required. Serials already used but not yet updated in Fixably — excluded from discrepancies and used to build FOR OUTTAKE.</p>
         <div class="upload-row">
           <label class="file-pick" for="so-file">Choose file</label>
           <input type="file" id="so-file" accept=".xlsx,.csv">
@@ -228,6 +200,25 @@ tr:hover td { background: #f8f9fa; }
     <hr class="sep">
     <button class="btn btn-green" onclick="step2Match()" id="step2-btn" disabled>Run Comparison</button>
     <div id="step2-result" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<!-- GENERATE FOR OUTTAKE -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="step-badge" style="background:var(--green)">&#9733;</div>
+    <h2>Generate FOR OUTTAKE</h2>
+    <span class="card-desc">— Used / transferred parts, sourced from the Stocked Out sheet.</span>
+  </div>
+  <div class="card-body">
+    <div class="info-strip">
+      Builds the FOR OUTTAKE list directly from your <b>Stocked Out sheet</b> (uploaded in Step 2):
+      one row per used / transferred serial, with the serial in Remarks.
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-green" onclick="genOuttake()">Generate FOR OUTTAKE (.xlsx)</button>
+    </div>
+    <div id="site-result" style="margin-top:14px"></div>
   </div>
 </div>
 
@@ -250,7 +241,7 @@ tr:hover td { background: #f8f9fa; }
 
 
 <script>
-const S = { fixably: null, actual: null, stockedout: null, step1: null, step2: null };
+const S = { fixably: null, actual: null, stockedout: null, step2: null };
 
 // ── Upload ──────────────────────────────────────────────────────────────────
 async function upload(kind) {
@@ -266,10 +257,33 @@ async function upload(kind) {
   S[kind] = data.columns;
   const prefix = { fixably: 'fx', actual: 'ac', stockedout: 'so' }[kind];
   renderMap(prefix, maps[kind], data.columns, data.preview, kind === 'stockedout');
+  warnMissing(kind, prefix, data.columns);
   if (kind === 'fixably') document.getElementById('step2-btn').disabled = false;
   const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   document.getElementById(fnames[kind]).innerHTML = `${f.name} <span style="color:var(--green);font-size:11px">Uploaded ${t}</span>`;
 }
+
+// Warn if a required column wasn't auto-detected
+const REQUIRED = {
+  actual: { serial: 'Serial Number', code: 'Part Number', quantity: 'Quantity' },
+  fixably: { serial: 'Serial number', code: 'Code', quantity: 'Quantity' },
+  stockedout: { serial: 'Serial Number' },
+};
+const KEYWORDS = { serial: 'serial', code: 'code', quantity: 'qty', description: 'desc' };
+function warnMissing(kind, prefix, cols) {
+  const low = cols.map(c => c.toLowerCase());
+  const altCode = kind === 'fixably' ? ['code'] : ['code', 'part'];
+  const missing = Object.entries(REQUIRED[kind]).filter(([key, lbl]) => {
+    const keys = key === 'code' ? altCode : key === 'quantity' ? ['qty', 'quantity'] : [KEYWORDS[key]];
+    return !low.some(c => keys.some(k => c.includes(k)));
+  }).map(([, lbl]) => lbl);
+  const box = document.getElementById(maps_id(prefix));
+  if (missing.length) {
+    box.insertAdjacentHTML('afterbegin',
+      `<div class="badge b-warn" style="margin-top:10px">Missing expected column(s): ${missing.join(', ')} — pick manually below or re-upload.</div>`);
+  }
+}
+function maps_id(prefix) { return { fx: 'fx-map', ac: 'ac-map', so: 'so-map' }[prefix]; }
 
 function renderMap(prefix, containerId, cols, preview, serialOnly) {
   const fields = serialOnly ? [['serial','Serial Number']] : [['serial','Serial Number'],['code','Part Code'],['quantity','Quantity']];
@@ -296,78 +310,48 @@ function getMap(prefix) {
 
 function toggleEl(id) { document.getElementById(id).classList.toggle('open'); }
 
-// ── Scanner ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('scan-box').addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); addScan(); }
-  });
-  document.getElementById('scan-box').focus();
-
   // Show filename on label when file is selected
-  ['ac-file','fx-file','so-file','site-file'].forEach(id => {
+  ['ac-file','fx-file','so-file'].forEach(id => {
     document.getElementById(id).addEventListener('change', function() {
       const label = this.previousElementSibling;
       label.textContent = this.files[0] ? this.files[0].name : 'Choose file';
     });
   });
+  restoreState();
 });
 
-function addScan() {
-  const box = document.getElementById('scan-box');
-  const val = box.value.trim();
-  if (!val) return;
-  const ta = document.getElementById('scan-list');
-  ta.value = ta.value ? ta.value + '\n' + val : val;
-  box.value = '';
+// Clear all uploads on the server and start fresh
+async function startNew() {
+  if (!confirm('Start new? This clears the uploaded On Hand, Fixably and Stocked Out files.')) return;
+  await fetch('/reset', { method: 'POST' });
+  location.reload();
 }
 
-function loadScanFile() {
-  const f = document.getElementById('scan-file').files[0];
-  if (!f) return;
-  const fr = new FileReader();
-  fr.onload = e => { document.getElementById('scan-list').value = e.target.result.trim(); };
-  fr.readAsText(f);
-}
-
-function clearScans() {
-  document.getElementById('scan-list').value = '';
-  document.getElementById('scan-box').focus();
-}
-
-function getScanned() {
-  return document.getElementById('scan-list').value
-    .split(/[\n,;]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
-}
-
-// ── Step 1 ───────────────────────────────────────────────────────────────────
-async function step1Match() {
-  if (!S.actual) return alert('Upload your Actual / On Hand sheet first.');
-  const serials = getScanned();
-  if (!serials.length) return alert('No serials scanned yet.');
-  const res = await fetch('/step1', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ serials, actual_map: getMap('ac') })
-  }).then(r => r.json());
-  S.step1 = res;
-  let h = `<div class="badge-row">
-    <span class="badge b-ok">Matched: ${res.matched}</span>
-    <span class="badge b-err">Scanned, not in sheet: ${res.not_in_actual.length}</span>
-    <span class="badge b-warn">In sheet, not scanned: ${res.not_scanned.length}</span>
-  </div>`;
-  if (res.not_in_actual.length) h += sec('Scanned but not in your sheet', res.not_in_actual.length,
-    tbl(['Serial'], res.not_in_actual.map(s => [s])), true);
-  if (res.not_scanned.length) h += sec('In your sheet but not physically scanned', res.not_scanned.length,
-    tbl(['Serial', 'Part Code'], res.not_scanned.map(r => [r.serial, r.code])));
-  document.getElementById('step1-result').innerHTML = h;
-  updateStep3();
+// Recover uploads still held by the server (e.g. after accidentally closing the tab)
+async function restoreState() {
+  let data;
+  try { data = await fetch('/state').then(r => r.json()); } catch { return; }
+  const prefixes = { fixably: 'fx', actual: 'ac', stockedout: 'so' };
+  const fnames = { fixably: 'fx-fname', actual: 'ac-fname', stockedout: 'so-fname' };
+  const maps = { fixably: 'fx-map', actual: 'ac-map', stockedout: 'so-map' };
+  Object.entries(data).forEach(([kind, v]) => {
+    S[kind] = v.columns;
+    const prefix = prefixes[kind];
+    renderMap(prefix, maps[kind], v.columns, v.preview, kind === 'stockedout');
+    if (kind === 'fixably') document.getElementById('step2-btn').disabled = false;
+    document.getElementById(fnames[kind]).innerHTML =
+      `${v.name} <span style="color:var(--green);font-size:11px">Restored</span>`;
+  });
 }
 
 // ── Step 2 ───────────────────────────────────────────────────────────────────
 async function step2Match() {
   if (!S.actual) return alert('Upload your Actual / On Hand sheet first.');
   if (!S.fixably) return alert('Upload the Fixably export first.');
+  if (!S.stockedout) return alert('Upload the Stocked Out sheet first.');
   const body = { fixably_map: getMap('fx'), actual_map: getMap('ac') };
-  if (S.stockedout) body.stockedout_map = { serial: document.getElementById('so-serial')?.value };
+  body.stockedout_map = { serial: document.getElementById('so-serial')?.value };
   const res = await fetch('/reconcile', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -384,6 +368,13 @@ async function step2Match() {
     Fixably &rarr; column: <b>${d.fx_col}</b> &nbsp;|&nbsp; sample: ${d.fx_sample.join(', ') || '—'}<br>
     Actual &rarr; column: <b>${d.ac_col}</b> &nbsp;|&nbsp; sample: ${d.ac_sample.join(', ') || '—'}
   </div>`;
+  h += chart([
+    ['Matched', res.summary.matched, 'var(--green)'],
+    ['In sheet, not in Fixably', res.in_actual_not_fixably.length, '#bf2600'],
+    ['In Fixably, not in sheet', res.in_fixably_not_actual.length, '#974f0c'],
+    ['Stocked out (excluded)', res.stocked_out_excluded.length, '#6b778c'],
+    ['Qty mismatches', res.qty_mismatch.length, '#0052cc'],
+  ]);
   if (res.in_actual_not_fixably.length) h += sec('In your sheet but NOT in Fixably', res.in_actual_not_fixably.length,
     tbl(['Serial'], res.in_actual_not_fixably.map(s => [s])), true);
   if (res.in_fixably_not_actual.length) h += sec('In Fixably but NOT in your sheet', res.in_fixably_not_actual.length,
@@ -402,12 +393,6 @@ async function step2Match() {
 // ── Step 3 ───────────────────────────────────────────────────────────────────
 function updateStep3() {
   let h = '<table style="border-collapse:collapse;font-size:13px">';
-  if (S.step1) h += `<tr>
-    <td style="padding:5px 16px 5px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);white-space:nowrap">Physical vs Actual</td>
-    <td style="padding:5px 6px"><span class="badge b-ok">Matched: ${S.step1.matched}</span></td>
-    <td style="padding:5px 6px"><span class="badge b-err">Not in sheet: ${S.step1.not_in_actual.length}</span></td>
-    <td style="padding:5px 6px"><span class="badge b-warn">Not scanned: ${S.step1.not_scanned.length}</span></td>
-  </tr>`;
   if (S.step2) h += `<tr>
     <td style="padding:5px 16px 5px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);white-space:nowrap">Actual vs Fixably</td>
     <td style="padding:5px 6px"><span class="badge b-ok">Matched: ${S.step2.summary.matched}</span></td>
@@ -442,82 +427,36 @@ function tbl(headers, rows) {
   </tbody></table></div>`;
 }
 
+// Horizontal bar chart: rows = [label, value, color]
+function chart(rows) {
+  const max = Math.max(1, ...rows.map(r => r[1]));
+  return `<div class="chart">` + rows.map(([label, val, color]) => `
+    <div class="chart-row">
+      <span class="chart-label">${label}</span>
+      <span class="chart-track"><span class="chart-bar" style="width:${(val / max) * 100}%;background:${color}"></span></span>
+      <span class="chart-val">${val}</span>
+    </div>`).join('') + `</div>`;
+}
+
 // ── Generate Site Workbook ───────────────────────────────────────────────────
-let siteReady = false;
-async function siteUpload() {
-  const f = document.getElementById('site-file').files[0];
-  if (!f) return alert('Choose a workbook first.');
-  const fd = new FormData();
-  fd.append('file', f);
-  const res = await fetch('/site/upload', { method: 'POST', body: fd }).then(r => r.json());
-  const box = document.getElementById('site-detect');
-  if (res.error) { box.innerHTML = `<span class="badge b-err">${res.error}</span>`; return; }
-  box.innerHTML = `<div class="badge-row">
-    <span class="badge b-info">Masterlist: ${res.sheets.masterlist}</span>
-    <span class="badge b-info">Total Parts: ${res.sheets.total_parts}</span>
-    <span class="badge b-info">Outtake: ${res.sheets.outtake}</span>
-    <span class="badge b-muted">${res.masterlist_serials} serials in file</span>
-  </div>`;
-  siteReady = true;
-  document.getElementById('site-gen-btn').disabled = false;
-  document.getElementById('site-ann-btn').disabled = false;
-}
-
-async function siteGenerate() {
-  if (!siteReady) return alert('Upload a site workbook first.');
-  const serials = getScanned();
-  if (!serials.length && !confirm('No serials scanned — every part will go to FOR OUTTAKE. Continue?')) return;
-  const res = await fetch('/site/generate', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ serials })
-  });
+async function genOuttake() {
+  if (!S.stockedout) return alert('Upload your Stocked Out sheet in Step 2 first.');
+  const res = await fetch('/outtake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   if (!res.ok) { const e = await res.json(); document.getElementById('site-result').innerHTML = `<span class="badge b-err">${e.error}</span>`; return; }
   const stats = JSON.parse(res.headers.get('X-Stats') || '{}');
-  const cd = res.headers.get('Content-Disposition') || '';
-  const fname = (cd.match(/filename=?"?([^\";]+)"?/) || [])[1] || 'reconciled.xlsx';
   const blob = await res.blob();
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = fname; a.click();
+  a.href = URL.createObjectURL(blob); a.download = 'FOR_OUTTAKE.xlsx'; a.click();
   URL.revokeObjectURL(a.href);
   document.getElementById('site-result').innerHTML = `<div class="badge-row">
-    <span class="badge b-ok">On-hand parts: ${stats.on_hand_parts}</span>
-    <span class="badge b-info">New stock: ${stats.new_stock}</span>
-    <span class="badge b-warn">For outtake: ${stats.outtake}</span>
-    <span class="badge b-muted">Downloaded ${fname}</span>
-  </div>`;
-}
-
-async function siteAnnotate() {
-  if (!siteReady) return alert('Upload a site workbook first.');
-  const serials = getScanned();
-  if (!serials.length && !confirm('No serials scanned — every serial in the export will be marked as believed used. Continue?')) return;
-  const res = await fetch('/site/annotate', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ serials })
-  });
-  if (!res.ok) { const e = await res.json(); document.getElementById('site-result').innerHTML = `<span class="badge b-err">${e.error}</span>`; return; }
-  const stats = JSON.parse(res.headers.get('X-Stats') || '{}');
-  const cd = res.headers.get('Content-Disposition') || '';
-  const fname = (cd.match(/filename=?"?([^\";]+)"?/) || [])[1] || 'annotated.xlsx';
-  const blob = await res.blob();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = fname; a.click();
-  URL.revokeObjectURL(a.href);
-  document.getElementById('site-result').innerHTML = `<div class="badge-row">
-    <span class="badge b-warn">Believed used: ${stats.believed_used}</span>
-    <span class="badge b-info">Not in export: ${stats.not_in_export}</span>
-    <span class="badge b-muted">OCN source: ${stats.ocn_source}</span>
-    <span class="badge b-muted">Downloaded ${fname}</span>
+    <span class="badge b-warn">For outtake (used/transferred): ${stats.outtake}</span>
+    <span class="badge b-muted">Downloaded FOR_OUTTAKE.xlsx</span>
   </div>`;
 }
 
 // ── Export ───────────────────────────────────────────────────────────────────
 function exportReport() {
   const rows = [['Serial', 'Part Code', 'Source', 'Issue', 'Action']];
-  if (S.step1) {
-    S.step1.not_in_actual.forEach(s => rows.push([s, '', 'Physical vs Actual', 'Scanned but not in sheet', 'Verify physical item']));
-    S.step1.not_scanned.forEach(r => rows.push([r.serial, r.code, 'Physical vs Actual', 'In sheet but not scanned', 'Locate item physically']));
-  }
   if (S.step2) {
     S.step2.in_actual_not_fixably.forEach(s => rows.push([s, '', 'Actual vs Fixably', 'In your sheet, missing in Fixably', 'Add to Fixably']));
     S.step2.in_fixably_not_actual.forEach(s => rows.push([s, '', 'Actual vs Fixably', 'In Fixably, not in your sheet', 'Remove from Fixably']));
