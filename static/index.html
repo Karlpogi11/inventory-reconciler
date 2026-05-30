@@ -211,12 +211,13 @@ tr:hover td { background: #f8f9fa; }
   <div class="card-hdr">
     <div class="step-badge" style="background:var(--green)">&#9733;</div>
     <h2>Generate FOR OUTTAKE</h2>
-    <span class="card-desc">— Used / transferred parts, sourced from the Stocked Out sheet.</span>
+    <span class="card-desc">— Stocked-out serials confirmed by the comparison (Run Comparison first).</span>
   </div>
   <div class="card-body">
     <div class="info-strip">
-      Builds the FOR OUTTAKE list directly from your <b>Stocked Out sheet</b> (uploaded in Step 2):
-      one row per used / transferred serial, with the serial in Remarks.
+      Lists the serials flagged as <b>stocked out (excluded)</b> in the Run Comparison results above —
+      with details (Code, Description, Reference) pulled from your Stocked Out sheet.
+      Run the comparison first.
     </div>
     <div class="btn-row">
       <button class="btn btn-green" onclick="genOuttake()">Generate FOR OUTTAKE (.xlsx)</button>
@@ -471,8 +472,10 @@ function chart(rows) {
 // ── Generate Site Workbook ───────────────────────────────────────────────────
 async function genOuttake() {
   if (!S.stockedout) return alert('Upload your Stocked Out sheet in Step 2 first.');
+  if (!S.step2) return alert('Run the comparison first — FOR OUTTAKE uses its results.');
   const map = ['serial','part','description','reference'].reduce((m,k)=>{ m[k]=document.getElementById(`so-${k}`)?.value||''; return m; }, {});
-  const res = await fetch('/outtake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ map }) });
+  const serials = S.step2.stocked_out_excluded || [];
+  const res = await fetch('/outtake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ map, serials }) });
   if (!res.ok) { const e = await res.json(); document.getElementById('site-result').innerHTML = `<span class="badge b-err">${e.error}</span>`; return; }
   const stats = JSON.parse(res.headers.get('X-Stats') || '{}');
   const blob = await res.blob();

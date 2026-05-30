@@ -82,7 +82,12 @@ def outtake():
         return jsonify({"error": "Upload your Stocked Out sheet first."}), 400
     df = state["stockedout"]["df"]
     cols = {c.strip().upper(): c for c in df.columns}
-    m = (request.json or {}).get("map", {})
+    body = request.json or {}
+    m = body.get("map", {})
+    only = body.get("serials")
+    if only is None:
+        return jsonify({"error": "Run the comparison first — FOR OUTTAKE uses its results."}), 400
+    only = set(only)
     ser_c = m.get("serial") or cols.get("SERIAL NUMBER", "")
     part_c = m.get("part") or cols.get("PART NUMBER", "")
     desc_c = m.get("description") or cols.get("DESCRIPTION", "")
@@ -96,7 +101,7 @@ def outtake():
     n = 0
     for _, r in df.iterrows():
         serial = str(r[ser_c]).strip() if ser_c else ""
-        if not serial:
+        if not serial or NORM(serial) not in only:
             continue
         ws.append([r[part_c] if part_c else "", r[desc_c] if desc_c else "",
                    r[ref_c] if ref_c else "", serial])
