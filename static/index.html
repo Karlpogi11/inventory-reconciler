@@ -42,6 +42,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .lbl .opt { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 11px; }
 .req-hint { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .req-hint b { color: var(--text); font-weight: 600; }
+.note { font-size: 12px; color: #974f0c; background: #fffae6; border: 1px solid #ffe7b3; border-radius: var(--r); padding: 7px 10px; margin-bottom: 8px; line-height: 1.5; }
+.note b { color: #6b4106; }
 select { width: 100%; padding: 6px 28px 6px 8px; border: 1px solid var(--border); border-radius: var(--r); font-size: 13px; color: var(--text); background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Cpath d='M0 0l5 5 5-5z' fill='%236b778c'/%3E%3C/svg%3E") no-repeat right 8px center; appearance: none; }
 select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,82,204,.15); }
 input[type=file] { display: none; }
@@ -168,6 +170,7 @@ tr:hover td { background: #f8f9fa; }
       <div class="col">
         <span class="lbl">Fixably Export</span>
         <p class="req-hint">Required columns: <b>Serial number</b>, <b>Code</b>, <b>Quantity</b></p>
+        <p class="note">⚠ Reminder: Fixably's <b>Quantity</b> = <b>in stock</b>, not <b>available</b>. A stocked-out serial still shows qty 1 in stock (0 available), but the export only has Quantity. Use the Stocked Out sheet to account for these.</p>
         <div class="upload-row">
           <label class="file-pick" for="fx-file">Choose file</label>
           <input type="file" id="fx-file" accept=".xlsx,.csv">
@@ -183,7 +186,7 @@ tr:hover td { background: #f8f9fa; }
 
       <div class="col">
         <span class="lbl">Stocked Out Sheet</span>
-        <p class="req-hint">Required: <b>Serial Number</b> &nbsp;·&nbsp; Optional (for FOR OUTTAKE): Part Number, Description</p>
+        <p class="req-hint">Required: <b>Serial Number</b> &nbsp;·&nbsp; Optional (for FOR OUTTAKE): Part Number, Description, Reference Number (AR)</p>
         <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Required. Serials already used but not yet updated in Fixably — excluded from discrepancies and used to build FOR OUTTAKE.</p>
         <div class="upload-row">
           <label class="file-pick" for="so-file">Choose file</label>
@@ -198,7 +201,7 @@ tr:hover td { background: #f8f9fa; }
     </div>
 
     <hr class="sep">
-    <button class="btn btn-green" onclick="step2Match()" id="step2-btn" disabled>Run Comparison</button>
+    <button class="btn btn-green" onclick="step2Match()" id="step2-btn">Run Comparison</button>
     <div id="step2-result" style="margin-top:16px"></div>
   </div>
 </div>
@@ -286,12 +289,19 @@ function warnMissing(kind, prefix, cols) {
 function maps_id(prefix) { return { fx: 'fx-map', ac: 'ac-map', so: 'so-map' }[prefix]; }
 
 function renderMap(prefix, containerId, cols, preview, serialOnly) {
-  const fields = serialOnly ? [['serial','Serial Number']] : [['serial','Serial Number'],['code','Part Code'],['quantity','Quantity']];
-  const guess = key => cols.find(c => c.toLowerCase().includes(key)) || cols[0];
+  const fields = serialOnly
+    ? [['serial','Serial Number','serial',false],['part','Part Number','part',true],['description','Description','desc',true],['reference','Reference Number (AR)','ref',true]]
+    : [['serial','Serial Number','serial',false],['code','Part Code','code',false],['quantity','Quantity','qty',false]];
+  const saved = loadMaps()[prefix] || {};
+  const guess = kw => cols.find(c => c.toLowerCase().includes(kw)) || cols[0];
   let h = '<div style="margin-top:12px">';
-  fields.forEach(([key, lbl]) => {
-    h += `<span class="lbl">${lbl}</span><select id="${prefix}-${key}">`;
-    cols.forEach(c => h += `<option${c === guess(key) ? ' selected' : ''}>${c}</option>`);
+  fields.forEach(([key, lbl, kw, optional]) => {
+    // prefer a previously saved choice, but only if that column still exists in this file
+    const savedVal = (key in saved && (saved[key] === '' || cols.includes(saved[key]))) ? saved[key] : null;
+    const g = savedVal !== null ? savedVal : (optional ? (cols.find(c => c.toLowerCase().includes(kw)) || '') : guess(kw));
+    h += `<span class="lbl">${lbl}${optional ? ' <span class="opt">(optional)</span>' : ''}</span><select id="${prefix}-${key}" onchange="saveMap('${prefix}')">`;
+    if (optional) h += `<option value=""${g === '' ? ' selected' : ''}>— none —</option>`;
+    cols.forEach(c => h += `<option${c === g ? ' selected' : ''}>${c}</option>`);
     h += '</select>';
   });
   h += '</div>';
@@ -302,6 +312,19 @@ function renderMap(prefix, containerId, cols, preview, serialOnly) {
   preview.forEach(row => h += '<tr>' + cols.map(c => `<td>${row[c] ?? ''}</td>`).join('') + '</tr>');
   h += '</tbody></table></div></div>';
   document.getElementById(containerId).innerHTML = h;
+  saveMap(prefix);  // persist the effective mapping (guessed or saved)
+}
+
+// Persist column mappings across refreshes so manual corrections survive restore
+const MAP_KEYS = { fx: ['serial','code','quantity'], ac: ['serial','code','quantity'], so: ['serial','part','description','reference'] };
+function loadMaps() { try { return JSON.parse(localStorage.getItem('recon_maps') || '{}'); } catch { return {}; } }
+function saveMap(prefix) {
+  const all = loadMaps();
+  all[prefix] = Object.fromEntries((MAP_KEYS[prefix] || []).map(k => {
+    const el = document.getElementById(`${prefix}-${k}`);
+    return el ? [k, el.value] : null;
+  }).filter(Boolean));
+  localStorage.setItem('recon_maps', JSON.stringify(all));
 }
 
 function getMap(prefix) {
@@ -324,6 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Clear all uploads on the server and start fresh
 async function startNew() {
   if (!confirm('Start new? This clears the uploaded On Hand, Fixably and Stocked Out files.')) return;
+  localStorage.removeItem('recon_maps');
   await fetch('/reset', { method: 'POST' });
   location.reload();
 }
@@ -356,6 +380,10 @@ async function step2Match() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   }).then(r => r.json());
+  if (res.error || !res.summary) {
+    document.getElementById('step2-result').innerHTML = `<span class="badge b-err">${res.error || 'Comparison failed — check your column mapping.'}</span>`;
+    return;
+  }
   S.step2 = res;
   const d = res.summary._debug;
   let h = `<div class="badge-row">
@@ -441,7 +469,8 @@ function chart(rows) {
 // ── Generate Site Workbook ───────────────────────────────────────────────────
 async function genOuttake() {
   if (!S.stockedout) return alert('Upload your Stocked Out sheet in Step 2 first.');
-  const res = await fetch('/outtake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const map = ['serial','part','description','reference'].reduce((m,k)=>{ m[k]=document.getElementById(`so-${k}`)?.value||''; return m; }, {});
+  const res = await fetch('/outtake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ map }) });
   if (!res.ok) { const e = await res.json(); document.getElementById('site-result').innerHTML = `<span class="badge b-err">${e.error}</span>`; return; }
   const stats = JSON.parse(res.headers.get('X-Stats') || '{}');
   const blob = await res.blob();
@@ -456,12 +485,13 @@ async function genOuttake() {
 
 // ── Export ───────────────────────────────────────────────────────────────────
 function exportReport() {
-  const rows = [['Serial', 'Part Code', 'Source', 'Issue', 'Action']];
+  const rows = [['Serial', 'Part Code', 'Reference', 'Source', 'Issue', 'Action']];
   if (S.step2) {
-    S.step2.in_actual_not_fixably.forEach(s => rows.push([s, '', 'Actual vs Fixably', 'In your sheet, missing in Fixably', 'Add to Fixably']));
-    S.step2.in_fixably_not_actual.forEach(s => rows.push([s, '', 'Actual vs Fixably', 'In Fixably, not in your sheet', 'Remove from Fixably']));
-    S.step2.stocked_out_excluded.forEach(s => rows.push([s, '', 'Stocked Out', 'In Fixably but already stocked out', 'Remove from Fixably']));
-    S.step2.qty_mismatch.forEach(r => rows.push(['', r.code, 'Actual vs Fixably', `Qty diff: Fixably=${r.fx_qty} Actual=${r.ac_qty}`, 'Update qty in Fixably']));
+    const ref = S.step2.stocked_out_ref || {};
+    S.step2.in_actual_not_fixably.forEach(s => rows.push([s, '', '', 'Actual vs Fixably', 'In your sheet, missing in Fixably', 'Add to Fixably']));
+    S.step2.in_fixably_not_actual.forEach(s => rows.push([s, '', '', 'Actual vs Fixably', 'In Fixably, not in your sheet', 'Remove from Fixably']));
+    S.step2.stocked_out_excluded.forEach(s => rows.push([s, '', ref[s] || '', 'Stocked Out', 'In Fixably but already stocked out', 'Remove from Fixably']));
+    S.step2.qty_mismatch.forEach(r => rows.push(['', r.code, '', 'Actual vs Fixably', `Qty diff: Fixably=${r.fx_qty} Actual=${r.ac_qty}`, 'Update qty in Fixably']));
   }
   const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const a = document.createElement('a');

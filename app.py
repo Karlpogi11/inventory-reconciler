@@ -82,21 +82,24 @@ def outtake():
         return jsonify({"error": "Upload your Stocked Out sheet first."}), 400
     df = state["stockedout"]["df"]
     cols = {c.strip().upper(): c for c in df.columns}
-    part_c = cols.get("PART NUMBER", "")
-    desc_c = cols.get("DESCRIPTION", "")
-    ser_c = cols.get("SERIAL NUMBER", "")
+    m = (request.json or {}).get("map", {})
+    ser_c = m.get("serial") or cols.get("SERIAL NUMBER", "")
+    part_c = m.get("part") or cols.get("PART NUMBER", "")
+    desc_c = m.get("description") or cols.get("DESCRIPTION", "")
+    ref_c = m.get("reference") or cols.get("REFERENCE NUMBER", "") or cols.get("AR", "")
 
     wb = Workbook()
     ws = wb.active
     ws.title = "FOR OUTTAKE"
     ws.append(["FOR OUTTAKE"])
-    ws.append(["PART NUMBER", "DESCRIPTION", "REMARKS"])
+    ws.append(["PART NUMBER", "DESCRIPTION", "REFERENCE NUMBER", "REMARKS"])
     n = 0
     for _, r in df.iterrows():
         serial = str(r[ser_c]).strip() if ser_c else ""
         if not serial:
             continue
-        ws.append([r[part_c] if part_c else "", r[desc_c] if desc_c else "", serial])
+        ws.append([r[part_c] if part_c else "", r[desc_c] if desc_c else "",
+                   r[ref_c] if ref_c else "", serial])
         n += 1
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
@@ -111,10 +114,20 @@ def reconcile():
     fx_map = body["fixably_map"]
     ac_map = body["actual_map"]
 
-    fx = state["fixably"]["df"].rename(columns={
+    if not state.get("fixably") or not state.get("actual"):
+        return jsonify({"error": "Upload both the Fixably export and the Actual / On Hand sheet first."}), 400
+
+    fx_df, ac_df = state["fixably"]["df"], state["actual"]["df"]
+    for label, df, mp in [("Fixably", fx_df, fx_map), ("Actual / On Hand", ac_df, ac_map)]:
+        for field in ("serial", "code", "quantity"):
+            col = mp.get(field)
+            if not col or col not in df.columns:
+                return jsonify({"error": f"{label}: column for '{field}' not found. Re-check the mapping."}), 400
+
+    fx = fx_df.rename(columns={
         fx_map["serial"]: "serial", fx_map["code"]: "code", fx_map["quantity"]: "quantity"
     })
-    ac = state["actual"]["df"].rename(columns={
+    ac = ac_df.rename(columns={
         ac_map["serial"]: "serial", ac_map["code"]: "code", ac_map["quantity"]: "quantity"
     })
 
@@ -126,10 +139,16 @@ def reconcile():
 
     # Stocked-out serials: in Fixably but already used — exclude from discrepancy
     so_serials = set()
+    so_ref = {}
     if state["stockedout"] and body.get("stockedout_map"):
-        so_df = state["stockedout"]["df"].rename(columns={body["stockedout_map"]["serial"]: "serial"})
+        so_raw = state["stockedout"]["df"]
+        so_cols = {c.strip().upper(): c for c in so_raw.columns}
+        ref_c = so_cols.get("REFERENCE NUMBER", "") or so_cols.get("AR", "")
+        so_df = so_raw.rename(columns={body["stockedout_map"]["serial"]: "serial"})
         so_df["serial"] = norm(so_df["serial"])
         so_serials = set(so_df[so_df["serial"] != ""]["serial"])
+        if ref_c:
+            so_ref = {s: str(r).strip() for s, r in zip(so_df["serial"], so_df[ref_c]) if s}
 
     in_actual_not_fixably = sorted(ac_serials - fx_serials)
     in_fixably_not_actual = sorted((fx_serials - ac_serials) - so_serials)
@@ -156,6 +175,7 @@ def reconcile():
         "in_actual_not_fixably": in_actual_not_fixably,
         "in_fixably_not_actual": in_fixably_not_actual,
         "stocked_out_excluded": stocked_out_excluded,
+        "stocked_out_ref": so_ref,
         "qty_mismatch": qty_mismatch,
         "summary": {
             "fx_total": len(fx_serials),
